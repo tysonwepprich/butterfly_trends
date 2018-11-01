@@ -8,7 +8,7 @@
 # use sites where sum(total) >= 5, YearSeen at site > 1
 # otherwise Site's population indices very low and bring down collated index
 
-
+source('01_data_prep.R')
 
 
 # Fit a generalized additive model (GAM) for each species
@@ -46,7 +46,7 @@ outfiles <- foreach(sp = 1:nrow(allspecies),
                       
                       #get unique surveys, including those where species not counted (but were at one time)
                       survs <- surveys %>% 
-                        filter(year(SiteDate) %in% unique(counts$Year)) %>% 
+                        # filter(year(SiteDate) %in% unique(counts$Year)) %>% 
                         filter(SiteID %in% unique(counts$SiteID)) %>% 
                         mutate(Year = year(SiteDate))
                       
@@ -74,17 +74,11 @@ outfiles <- foreach(sp = 1:nrow(allspecies),
                         mutate(SurvPerYear = length(unique(SeqID)),
                                YearTotal = sum(Total))
                       
-                      
-                      # if(cutoff == "strict"){
-                      #   datGAM <- counts[YearTotal >= 3]
-                      #   datGAM <- datGAM[SurvPerYear >= 15]
-                      # }
-                      # if(cutoff == "loose"){
-                      #   datGAM <- counts %>% filter(YearTotal >= 1, SurvPerYear >= 10)
-                      # }
-                      
                       # what if cutoff for inclusion is really open?
-                      dat <- counts %>% filter(YearTotal >= 1, SurvPerYear >= 5)
+                      # could filter out sites with lower effort later
+                      # also this better accounts for SiteYear zero counts, 
+                      # which are important for population trends
+                      dat <- counts %>% filter(YearTotal >= 0, SurvPerYear >= 5)
                       
                       mod <- list()
                       
@@ -160,8 +154,13 @@ outfiles <- foreach(sp = 1:nrow(allspecies),
                               modtime <- modtime_nb  
                             }
                           }else{
-                            mod <- ifelse(is.null(mod_po$error) == TRUE, mod_po, mod_nb)
-                            modtime <- ifelse(is.null(mod_po$error) == TRUE, modtime_po, modtime_nb)
+                            if(is.null(mod_po$error) == TRUE){
+                              mod <- mod_po
+                              modtime <- modtime_po
+                            }else{
+                              mod <- mod_nb
+                              modtime <- modtime_nb
+                            }
                           }
                         }
                       }
