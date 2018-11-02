@@ -16,14 +16,15 @@ source('01_data_prep.R')
 # OR be used to compute site x year population indices
 
 
+# run a subset for testing
+allspecies <- allspecies[c(81:84), ]
 
 ncores <- 20
-if(.Platform$OS.type == "unix"){
-  registerDoMC(cores = ncores)
-}else if(.Platform$OS.type == "windows"){
-  cl <- makeCluster(ncores)
-  registerDoSNOW(cl)
+if(ncores > (parallel::detectCores() / 2)){
+  ncores <- parallel::detectCores() / 2
 }
+cl <- makePSOCKcluster(ncores)
+registerDoParallel(cl)
 
 mcoptions <- list(preschedule = FALSE)
 
@@ -113,7 +114,7 @@ outfiles <- foreach(sp = 1:nrow(allspecies),
                           modtime_nb <- system.time({ 
                             mod_nb <- safe_bam(Total ~
                                                  # s(zlistlength, bs = "cr") +
-                                                 te(lat, lon, AccumDD, bs = c("tp", "cr"), k = c(5, 30), d = c(2, 1)) +
+                                                 te(lat, lon, AccumDD, bs = c("tp", "cc"), k = c(5, 30), d = c(2, 1)) +
                                                  s(SiteYear, bs = "re") +
                                                  s(Year, bs = "re") +
                                                  s(SiteID, bs = "re") +
@@ -192,51 +193,4 @@ outfiles <- foreach(sp = 1:nrow(allspecies),
 if(.Platform$OS.type == "windows"){
   stopCluster(cl)
 }
-
-
-mod <- mod_po
-pltdat <- dat %>% filter(SiteID == "034", Year == "2000")
-
-preddat <- gdd %>% 
-  ungroup() %>% 
-  mutate(Year = as.factor(as.character(Year))) %>% 
-  filter(SiteID == "034", Year == "2000", DOY <= 300 & DOY >= 90) %>% 
-  mutate(RegYear = paste(region, Year, sep = "_"),
-         SiteYear = paste(SiteID, Year, sep = "_"),
-         zlistlength = 0)
-
-# prediction with simulated counts, stochastic but integers (if n is odd)
-Xp <- predict.gam(object = mod, newdata = preddat, type="lpmatrix") ## map coefs to fitted curves
-beta <- coef(mod)
-Vb   <- vcov(mod) ## posterior mean and cov of coefs
-n <- 100 # choose number of simulations
-mrand <- MASS::mvrnorm(n, beta, Vb) ## simulate n rep coef vectors from posterior
-ilink <- family(mod)$linkinv
-linklppreds <- Xp %*% t(mrand)
-nbpreds <- apply(X = linklppreds,
-                 MARGIN = 1,
-                 FUN = function(x){
-                   # temp <- sort(x)
-                   # bounds <- quantile(1:n, probs = c(0.025, 0.975))
-                   # x <- temp[bounds[1]:bounds[2]]
-                   x <- ilink(x)
-                   x <- rnbinom(n = length(x),
-                                mu = x,
-                                size = mod$family$getTheta(TRUE))
-                   # x <- quantile(x, .5)
-                   return(x)
-                 })
-preddat$adjY <- predict.gam(object = mod, newdata = preddat, type="response") 
-
-
-
-# PopIndex via UKBMS (missing counts imputed, trapezoid by week)
-
-
-
-# PopIndex via GAM predictions (all weekly counts imputed, trapezoid by week, uncertainty quantified)
-
-
-
-
 

@@ -17,11 +17,7 @@ theme_set(theme_bw(base_size = 14))
 # for parallel model fitting
 # need different packages for windows computers
 library(foreach) # for parallelized loops
-if(.Platform$OS.type == "unix"){
-  library(doMC)    # parallel backend for foreach, only for linux/mac
-}else if(.Platform$OS.type == "windows"){
-  library(doSNOW)
-}
+library(doParallel)
 
 data <- readr::read_csv("data/data.trim.csv") %>% 
   mutate(SiteID = formatC(SiteID.x, width = 3, format = "d", flag = "0"),
