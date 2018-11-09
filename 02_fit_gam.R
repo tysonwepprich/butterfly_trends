@@ -17,7 +17,7 @@ source('01_data_prep.R')
 
 
 # run a subset for testing
-allspecies <- allspecies[c(81:84), ]
+allspecies <- allspecies[c(81:90), ]
 
 ncores <- 20
 if(ncores > (parallel::detectCores() / 2)){
@@ -110,11 +110,11 @@ outfiles <- foreach(sp = 1:nrow(allspecies),
                           mod$error <- "few data"
                         }else{
                           safe_bam <- purrr::safely(bam)
-                          
+           
                           modtime_nb <- system.time({ 
                             mod_nb <- safe_bam(Total ~
                                                  # s(zlistlength, bs = "cr") +
-                                                 te(lat, lon, AccumDD, bs = c("tp", "cc"), k = c(5, 30), d = c(2, 1)) +
+                                                 te(lat, lon, AccumDD, bs = c("tp", "cr"), k = c(5, 30), d = c(2, 1)) +
                                                  s(SiteYear, bs = "re") +
                                                  s(Year, bs = "re") +
                                                  s(SiteID, bs = "re") +

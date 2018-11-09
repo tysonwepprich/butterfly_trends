@@ -5,6 +5,9 @@ source('01_data_prep.R')
 tmp <- readRDS("Appalachian Eyed Brown.final.rds")
 mod <- tmp$gammod
 dat <- tmp$datGAM
+
+
+# example with one SiteYear
 pltdat <- dat %>% filter(SiteID == "097", Year == "2007")
 
 preddat <- gdd %>% 
@@ -45,7 +48,50 @@ preddat$adjY <- predict.gam(object = mod, newdata = preddat, type="response")
 
 
 # PopIndex via UKBMS (missing counts imputed, trapezoid by week)
+# UKBMS count index approximation
+TrapezoidIndex <- function(timescale, counts){
+  dat <- data.frame(t = timescale, y = counts)
+  dat <- arrange(dat, timescale)
+  if(nrow(dat) == 1){
+    return(dat$y)
+  }else{
+    temp <- rep(NA, nrow(dat)-1)
+    for (i in 2:length(dat$t)){
+      temp[i-1] <- (dat$y[i] + dat$y[i-1]) * (dat$t[i] - dat$t[i-1]) / 2
+    }
+  }
+  return(sum(temp))
+}
 
+surv <- dat %>% 
+  dplyr::select(SiteID, Week, Year, SiteYear) %>% 
+  distinct()
+allsurv <- surv %>% 
+  complete(SiteID, Week, Year) %>% 
+  mutate(SiteYear = paste(SiteID, Year, sep = "_")) %>% 
+  filter(Week <= 30) %>% 
+  filter(SiteYear %in% unique(surv$SiteYear))
+missing <- anti_join(allsurv, surv)
+
+impute_days <- expand.grid(Year = unique(missing$Year), Week = c(1:30)) %>% 
+  mutate(DOY = ifelse(as.numeric(as.character(Year)) %% 4 == 0, 92 + Week * 7 - 4, 91 + Week * 7 - 4)) # midweek to impute
+
+missing <- missing %>% 
+  left_join(impute_days) %>% 
+  mutate(SiteDate = as.Date(paste(DOY, Year, sep = "-"), format = "%j-%Y")) %>% 
+  left_join(gdd[, c("SiteID", "SiteDate", "lat", "lon", "AccumDD", "region")], by = c("SiteID", "SiteDate")) %>% 
+  mutate(RegYear = paste(region, Year, sep = "_")) %>% 
+  mutate(Total = predict(mod, newdata = ., type = "response"),
+         datatype = "imputed")
+
+# check for boundary problems
+plot(missing$AccumDD, missing$Total)
+
+alldat <- dat %>% 
+  mutate(datatype = "observed") %>% 
+  bind_rows(missing) %>% 
+  group_by(SiteYear, SiteID, Year, lat, lon, RegYear) %>% 
+  summarise(Index = TrapezoidIndex(DOY, Total))
 
 
 
