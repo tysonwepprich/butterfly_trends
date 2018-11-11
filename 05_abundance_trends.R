@@ -16,24 +16,20 @@ test <- allpops %>%
   filter(posSite > 10, posYear > 10)
 
 
-allpops <- allpops %>% 
+pops <- allpops %>% 
   filter(CommonName %in% test$CommonName)
 
 
 
 pops$YearFact <- as.factor(as.character(pops$Year))
+pops$Year <- as.numeric(as.character(pops$Year))
 pops$SiteID <- as.factor(as.character(pops$SiteID))
 pops$zyear <- scale(pops$Year)[,1]
 
-# a <- ggplot(pops, aes(x = Year, y = PopIndex)) +
-#   geom_point()+
-#   geom_smooth() +
-#   facet_wrap(~species, scales = "free_y")
-# a
 
 CollInd <- function(temp){
   temp <- temp %>% droplevels()
-  mod <- glm(round(PopIndex) ~ YearFact + SiteID - 1, 
+  mod <- glm(round(Index) ~ YearFact + SiteID - 1, 
              data = temp, family = poisson(link = "log"))
   out <- data.frame(Year = levels(temp$YearFact), 
                     Index = coef(mod)[1:length(levels(temp$YearFact))],
@@ -43,22 +39,22 @@ CollInd <- function(temp){
 
 popmod <- pops %>%  
   filter(Year != 1995) %>%
-  group_by(species, SiteID) %>% 
-  mutate(yrpersite = length(unique(Year)),
+  group_by(CommonName, SiteID) %>% 
+  mutate(yrpersite = length(unique(Year[which(YearTotal > 0)])),
          yrsincestart = Year - min(Year)) %>% 
-  group_by(species, Year) %>% 
-  mutate(siteperyr = length(unique(SiteID))) %>% 
-  filter(yrpersite > 1,
-         siteperyr > 1) %>%
+  # filter(yrpersite > 1) %>% 
+  group_by(CommonName, Year) %>% 
+  mutate(siteperyr = length(unique(SiteID[which(YearTotal > 0)]))) %>% 
+  # filter(siteperyr > 2) %>%
   droplevels() %>% 
-  group_by(species) %>% 
+  group_by(CommonName) %>% 
   mutate(uniqyr = length(unique(Year))) %>%
   filter(uniqyr >= 5) %>%
   do(., CollInd(.)) %>% 
   mutate(Year = as.numeric(as.character(Year)))
 
 poptrend <- popmod %>% 
-  group_by(species) %>% 
+  group_by(CommonName) %>% 
   do(fit = lm(Index ~ Year, data = .)) %>% 
   broom::tidy(fit) %>% 
   filter(term == "Year") %>% 
@@ -72,7 +68,7 @@ perctrend <- function(data){
 }
 
 poptrendperc <- popmod %>% 
-  group_by(species) %>% 
+  group_by(CommonName) %>% 
   do(trend = perctrend(.)) %>% 
   unnest()
 
@@ -80,8 +76,35 @@ poptrendperc <- popmod %>%
 a <- ggplot(popmod, aes(x = Year, y = Index)) +
   geom_point()+
   geom_smooth(method = "lm") +
-  facet_wrap(~species, scales = "free_y")
+  facet_wrap(~CommonName, scales = "free_y")
 a
+
+
+
+library(lme4)
+# Collated index has problem with zero years, it's not missing data though!
+mod <- glmer(round(Index) ~ zyear +
+               (1 + zyear|SiteID) +
+               (1 | YearFact), family = poisson(link = "log"),
+             data = temp)
+
+CollInd <- function(temp){
+  temp <- temp %>% droplevels()
+  mod <- glmer(round(Index) ~ zyear +
+                 (1 + zyear|SiteID) +
+                 (1 | YearFact), 
+             data = temp, family = poisson(link = "log"))
+  out <- data.frame(Year = levels(temp$YearFact), 
+                    Index = coef(mod)[1:length(levels(temp$YearFact))],
+                    zIndex = scale(coef(mod)[1:length(levels(temp$YearFact))])[,1])
+}
+
+
+# maybe use glmer results to have a few datasets output:
+# Year Trend and YearFact variation in "collated index"
+# Site Intercept and trend for later use in 
+
+
 
 
 traits <- read.csv("data/speciesphenology.csv", header = TRUE)
