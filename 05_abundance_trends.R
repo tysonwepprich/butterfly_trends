@@ -1,7 +1,7 @@
 # Abundance trends based on SiteYear population indices
 source('01_data_prep.R')
 
-
+library(lme4)
 
 allpops <- readRDS("allpops.rds")
 
@@ -36,22 +36,43 @@ CollInd <- function(temp){
                     zIndex = scale(coef(mod)[1:length(levels(temp$YearFact))])[,1])
 }
 
+CollIndGLMER <- function(temp){
+  temp <- temp %>% droplevels()
+  mod <- glmer(round(Index) ~ zyear +
+                 (1 + zyear|SiteID) +
+                 (1 | YearFact), family = poisson(link = "log"),
+               data = temp)
+  out <- temp %>% ungroup() %>% dplyr::select(zyear, YearFact) %>% distinct() %>% mutate(SiteID = "000")
+  
+  out$Index <- predict(mod, out, re.form = ~ 1 | YearFact)
+  out$glmer_intc <- fixef(mod)[1]
+  out$glmer_slope <- fixef(mod)[2]
+  return(out)
+}
+
+
+# TODO:
+# BROOM summarise glmer to get slope/se
+# YearRE to plot
+# SiteRE to plot site covaraites
 
 popmod <- pops %>%  
   filter(Year != 1995) %>%
   group_by(CommonName, SiteID) %>% 
   mutate(yrpersite = length(unique(Year[which(YearTotal > 0)])),
          yrsincestart = Year - min(Year)) %>% 
-  # filter(yrpersite > 1) %>% 
+  filter(yrpersite >= 3) %>%
   group_by(CommonName, Year) %>% 
   mutate(siteperyr = length(unique(SiteID[which(YearTotal > 0)]))) %>% 
-  # filter(siteperyr > 2) %>%
+  filter(siteperyr >= 3) %>%
   droplevels() %>% 
   group_by(CommonName) %>% 
-  mutate(uniqyr = length(unique(Year))) %>%
-  filter(uniqyr >= 5) %>%
-  do(., CollInd(.)) %>% 
-  mutate(Year = as.numeric(as.character(Year)))
+  mutate(uniqyr = length(unique(Year)),
+         uniqsite = length(unique(SiteID))) %>%
+  filter(uniqyr >= 5,
+         uniqsite >= 5) %>%
+  do(., CollIndGLMER(.)) %>% 
+  mutate(Year = as.numeric(as.character(YearFact)))
 
 poptrend <- popmod %>% 
   group_by(CommonName) %>% 
@@ -88,15 +109,55 @@ mod <- glmer(round(Index) ~ zyear +
                (1 | YearFact), family = poisson(link = "log"),
              data = temp)
 
-CollInd <- function(temp){
+CollatedGLMER <- function(temp){
   temp <- temp %>% droplevels()
-  mod <- glmer(round(Index) ~ zyear +
-                 (1 + zyear|SiteID) +
-                 (1 | YearFact), 
+  m <- glmer(round(Index) ~ zyear +
+               (1 + zyear|SiteID) +
+               (1 | YearFact), 
              data = temp, family = poisson(link = "log"))
-  out <- data.frame(Year = levels(temp$YearFact), 
-                    Index = coef(mod)[1:length(levels(temp$YearFact))],
-                    zIndex = scale(coef(mod)[1:length(levels(temp$YearFact))])[,1])
+  
+  
+  
+  newdat <- data.frame(zyear = unique(temp$zyear), Index = coef(m)$YearFact[, 1])
+  newdat$pred <- predict(m, newdat, type = "response", re.form = NA)
+  plt <- ggplot(newdat, aes(x = zyear, y = Index)) +
+    geom_point() +
+    geom_smooth(method = "lm")
+  plt
+  
+  
+  
+  
+  tempdf <- data.frame(zyear = seq(min(temp$zyear), max(temp$zyear), length.out = 100),
+                       SiteID = "000", YearFact = "0000")
+  exampPreds <- predictInterval(m, newdata = tempdf, 
+                                type = "linear.prediction",
+                                include.resid.var = FALSE, level = 0.95)
+  tempdf <- cbind(tempdf, exampPreds)
+  
+  pointdf <- temp %>% ungroup() %>% dplyr::select(zyear, YearFact) %>% distinct() %>% mutate(SiteID = "000")
+  pointdf$pred <- predict(m, pointdf, re.form = NA)
+  pointdf$pred2 <- predict(m, pointdf, re.form = ~ 1 | YearFact)
+  
+  ggplot(data=tempdf, aes(x = zyear)) +
+  geom_line(aes(y = fit)) +
+  geom_ribbon(data=tempdf, aes(ymin = lwr, ymax = upr), fill = "blue", alpha = 0.2)
+  
+  
+  plt <- ggplot(pointdf, aes(x = zyear, y = pred2)) + 
+    geom_point() +
+    geom_smooth(method = "lm")
+  
+  pred <- pointdf$pred2
+  last <- length(pred)
+  out <- (exp(pred[last]) - exp(pred[1]))/exp(pred[1])
+  
+  out
+  results <- list()
+  results[[1]] <- summary(mod)
+  results[[2]] <- coef(mod)
+  results[[3]] <- 
+    return(mod)
 }
 
 
