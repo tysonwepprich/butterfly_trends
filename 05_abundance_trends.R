@@ -9,14 +9,22 @@ allpops <- readRDS("allpops.rds")
 
 # 87 species when filtering by >10 sites, >10 years
 test <- allpops %>% 
+  group_by(CommonName, SiteID) %>% 
+  mutate(posYearbySite = length(unique(Year[which(YearTotal > 0)])),
+         obsYearbySite = length(unique(Year[which(YearTotal >= 0)]))) %>% 
   group_by(CommonName) %>% 
-  summarise(meanTot = round(mean(YearTotal)),
-            meanIndex = round(mean(Index)),
+  summarise(medTot = round(median(YearTotal)),
+            medIndex = round(median(Index)),
             posSiteYear = length(which(YearTotal > 0)),
             posSite = length(unique(SiteID[which(YearTotal > 0)])),
-            posYear = length(unique(Year[which(YearTotal > 0)]))) %>% 
-  filter(posSite > 10, posYear > 10)
+            posYear = length(unique(Year[which(YearTotal > 0)])),
+            posSY5 = length(unique(SiteID[which(posYearbySite >= 5)])),
+            posSY10 = length(unique(SiteID[which(posYearbySite >= 10)])),
+            obsSY5 = length(unique(SiteID[which(obsYearbySite >= 5)])),
+            obsSY10 = length(unique(SiteID[which(obsYearbySite >= 10)]))) #%>% 
+  # filter(posSite > 10, posYear > 10)
 
+write.csv(test, "species_observations.csv", row.names = FALSE)
 
 pops <- allpops %>% 
   filter(CommonName %in% test$CommonName)
