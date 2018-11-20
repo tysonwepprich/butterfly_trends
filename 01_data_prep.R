@@ -22,6 +22,7 @@ library(doParallel)
 data <- readr::read_csv("data/data.trim.csv") %>% 
   mutate(SiteID = formatC(SiteID.x, width = 3, format = "d", flag = "0"),
          SiteDate = lubridate::ymd(SiteDate))
+# Two azure species are not distinguished in the monitoring, but could be separated by phenology later
 data$CommonName[which(data$CommonName == "Spring/Summer Azure")] <- "Azures"
 
 # new find of seqid with wrong date (site 086, week 29)
@@ -34,6 +35,18 @@ allspecies <- data %>%
   group_by(CommonName, CombinedLatin) %>% 
   summarise(n = sum(Total)) %>% 
   arrange(n)
+
+
+# new: add The Wilds surveys that they shared with me, not entered yet into full database
+'%!in%' <- function(x,y)!('%in%'(x,y))
+
+test <- data %>% filter(SiteID == "098")
+wilds <- read.csv("data/combinedData_thewilds.csv", header = TRUE) %>% 
+  mutate(SiteDate = as.Date(dmy(as.character(SheetName)))) %>% 
+  filter(SiteDate %!in% unique(test$SiteDate),
+         species %in% allspecies$CommonName)
+
+
 
 surveys <- distinct(data[, c("SeqID", "SiteID", "SiteDate", "Week")])
 
@@ -61,9 +74,9 @@ sitelist <- covdata %>%
 
 
 
-sites <- read.csv("data/OHsites_reconciled_update2016.csv") %>% 
+sites <- read.csv("data/OHsites_reconciled_update2018.csv") %>% 
   mutate(SiteID = formatC(Name, width = 3, format = "d", flag = "0"))
-gdd <- readRDS("data/dailyDD.rds")
+gdd <- readRDS("data/dailyDD2016.rds")
 
 
 gdd <- left_join(gdd, sites) %>% 
