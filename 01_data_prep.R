@@ -25,9 +25,8 @@ data <- readr::read_csv("data/data.trim.csv") %>%
 # Two azure species are not distinguished in the monitoring, but could be separated by phenology later
 data$CommonName[which(data$CommonName == "Spring/Summer Azure")] <- "Azures"
 
-# new find of seqid with wrong date (site 086, week 29)
-# seems to be isolated, but no good way to test
-data$SiteDate[which(data$SeqID == 8075)] <- as.Date("2005-10-19")
+data <- data %>% 
+  filter(year(SiteDate) >= 1996, year(SiteDate) <= 2016)
 
 # filter unidentified species
 allspecies <- data %>% 
@@ -35,17 +34,6 @@ allspecies <- data %>%
   group_by(CommonName, CombinedLatin) %>% 
   summarise(n = sum(Total)) %>% 
   arrange(n)
-
-
-# new: add The Wilds surveys that they shared with me, not entered yet into full database
-'%!in%' <- function(x,y)!('%in%'(x,y))
-
-test <- data %>% filter(SiteID == "098")
-wilds <- read.csv("data/combinedData_thewilds.csv", header = TRUE) %>% 
-  mutate(SiteDate = as.Date(dmy(as.character(SheetName)))) %>% 
-  filter(SiteDate %!in% unique(test$SiteDate),
-         species %in% allspecies$CommonName)
-
 
 
 surveys <- distinct(data[, c("SeqID", "SiteID", "SiteDate", "Week")])
@@ -59,6 +47,15 @@ covdata <- data %>%
             duration = duration[1]) %>%
   distinct() %>% 
   left_join(surveys)
+
+# impute missing duration values (due to misaligned time entries, etc.)
+# one one still is NA because never reported end time for surveys.
+covdata <- covdata %>% 
+  mutate(Year = year(SiteDate)) %>% 
+  group_by(SiteID, Year) %>% 
+  mutate(duration = ifelse(is.na(duration) == TRUE | duration == 0,
+                           median(duration, na.rm = TRUE),
+                           duration))
 
 # site differences
 # range of # of species seen at different sites makes me think that 

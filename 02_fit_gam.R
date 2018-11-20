@@ -17,9 +17,9 @@ source('01_data_prep.R')
 
 
 # run a subset for testing
-allspecies <- allspecies[c(81:84), ]
+# allspecies <- allspecies[c(81:84), ]
 
-ncores <- 20
+ncores <- 4
 if(ncores > (parallel::detectCores() / 2)){
   ncores <- parallel::detectCores() / 2
 }
