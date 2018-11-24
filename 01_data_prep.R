@@ -71,18 +71,18 @@ sitelist <- covdata %>%
 
 
 
-sites <- read.csv("data/OHsites_reconciled_update2018.csv") %>% 
+sites <- read.csv("data/OHsites2018update.txt") %>% 
   mutate(SiteID = formatC(Name, width = 3, format = "d", flag = "0"))
 gdd <- readRDS("data/dailyDD2016.rds")
 
 
 gdd <- left_join(gdd, sites) %>% 
-  dplyr::select(SiteID, SiteDate, degday1030, chill0, lat, lon, maxT, minT) %>% 
+  dplyr::select(SiteID, SiteDate, degday530, chill0, lat, lon, maxT, minT) %>% 
   mutate(Year = year(SiteDate),
          DOY = yday(SiteDate)) %>% 
   group_by(SiteID, Year) %>% 
   arrange(DOY) %>% 
-  mutate(AccumDD = cumsum(degday1030),
+  mutate(AccumDD = cumsum(degday530),
          AccumChill = cumsum(chill0))
 
 siteGDD <- gdd %>%

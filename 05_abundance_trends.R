@@ -5,7 +5,7 @@ library(lme4)
 library(broom)
 library(merTools)
 
-allpops <- readRDS("allpops.rds")
+allpops <- readRDS("allpops.5.rds")
 
 # 87 species when filtering by >10 sites, >10 years
 test <- allpops %>% 
@@ -21,10 +21,10 @@ test <- allpops %>%
             posSY5 = length(unique(SiteID[which(posYearbySite >= 5)])),
             posSY10 = length(unique(SiteID[which(posYearbySite >= 10)])),
             obsSY5 = length(unique(SiteID[which(obsYearbySite >= 5)])),
-            obsSY10 = length(unique(SiteID[which(obsYearbySite >= 10)]))) #%>% 
-  # filter(posSite > 10, posYear > 10)
+            obsSY10 = length(unique(SiteID[which(obsYearbySite >= 10)]))) %>% 
+  filter(posSY5 >= 5 | posSY10 >= 1)
 
-write.csv(test, "species_observations.csv", row.names = FALSE)
+# write.csv(test, "species_observations.csv", row.names = FALSE)
 
 pops <- allpops %>% 
   filter(CommonName %in% test$CommonName)
@@ -34,7 +34,7 @@ pops <- allpops %>%
 pops$YearFact <- as.factor(as.character(pops$Year))
 pops$Year <- as.numeric(as.character(pops$Year))
 pops$SiteID <- as.factor(as.character(pops$SiteID))
-pops$zyear <- scale(pops$Year)[,1]
+pops$zyear <- pops$Year - 2006
 
 
 CollInd <- function(temp){
@@ -78,20 +78,21 @@ CollIndGLMER <- function(temp){
 
 
 popmod <- pops %>%  
-  filter(Year != 1995) %>%
+  # filter(Year != 1995) %>%
+  filter(method == "ukbms") %>% 
   group_by(CommonName, SiteID) %>% 
   mutate(yrpersite = length(unique(Year[which(YearTotal > 0)])),
          yrsincestart = Year - min(Year)) %>% 
-  filter(yrpersite >= 5) %>%
+  filter(yrpersite >= 3) %>%
   group_by(CommonName, Year) %>% 
   mutate(siteperyr = length(unique(SiteID[which(YearTotal > 0)]))) %>% 
-  filter(siteperyr >= 5) %>%
+  # filter(siteperyr >= 3) %>%
   droplevels() %>% 
   group_by(CommonName) %>% 
   mutate(uniqyr = length(unique(Year)),
          uniqsite = length(unique(SiteID))) %>%
   filter(uniqyr >= 5,
-         uniqsite >= 5) %>%
+         uniqsite >= 3) %>%
   do(results = CollIndGLMER(.)) 
 
 # 
@@ -268,6 +269,7 @@ summary(lm(estimate~BroodsGAMmax + HostCategory + ResStatus + WinterStage, data 
 
 popall <- pops %>%  
   ungroup() %>% 
+  filter(method == "gampred") %>% 
   filter(Year >= 1996,
          is.na(meanTime) == FALSE) %>%
   # filter(CommonName != "Cabbage White") %>%  # with or without Cabbage White

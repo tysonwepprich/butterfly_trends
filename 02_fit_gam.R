@@ -178,14 +178,14 @@ outfiles <- foreach(sp = 1:nrow(allspecies),
                         outlist[["gammod"]] <- mod$result
                         outlist[["gamtime"]] <- as.numeric(modtime)[1]
                         outlist[["datGAM"]] <- dat
-                        saveRDS(outlist, paste(species, "final", "rds", sep = "."))
+                        saveRDS(outlist, paste(species, "5", "final", "rds", sep = "."))
                         
                       }else{
                         outlist <- list()
                         outlist[["params"]] <- pars
                         outlist[["gammod"]] <- mod$error
                         outlist[["datGAM"]] <- dat
-                        saveRDS(outlist, paste("gamerr", species, "rds", sep = "."))
+                        saveRDS(outlist, paste("gamerr", species, "5", "rds", sep = "."))
                       }
                       return(sp)
                     }

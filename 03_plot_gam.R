@@ -86,4 +86,21 @@ for (mf in seq_along(modfiles)){
 }
 
 outparams <- bind_rows(sp_params)
-saveRDS(outparams, "modparams.rds")
+saveRDS(outparams, "modparams.5.rds")
+
+
+
+
+modfiles <- list.files()
+modfiles <- modfiles[grep(pattern = "final", x = modfiles, fixed = TRUE)]
+sp_params <- list()
+
+for (mf in seq_along(modfiles)){
+  
+  tmp <- readRDS(modfiles[mf])
+  sp_params[[mf]] <- tmp$params
+}
+outparams <- bind_rows(sp_params)
+
+outparam10 <- readRDS("modparams.rds")
+

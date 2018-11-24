@@ -1,6 +1,6 @@
 source('01_data_prep.R')
 
-modfiles <- list.files("gams", full.names = TRUE)
+modfiles <- list.files("gams5", full.names = TRUE)
 modfiles <- modfiles[grep(pattern = "final", x = modfiles, fixed = TRUE)]
 sp_pops <- list()
 
@@ -50,43 +50,65 @@ for (mf in seq_along(modfiles)){
     mutate(Total = predict(mod, newdata = ., type = "response"),
            datatype = "imputed")
   
+  impute_all <-  expand.grid(Year = unique(allsurv$Year), Week = c(1:30)) %>% 
+    mutate(DOY = ifelse(as.numeric(as.character(Year)) %% 4 == 0, 92 + Week * 7 - 4, 91 + Week * 7 - 4)) # midweek to impute
+  
+  allpred <- allsurv %>% 
+    left_join(impute_all) %>% 
+    mutate(SiteDate = as.Date(paste(DOY, Year, sep = "-"), format = "%j-%Y")) %>% 
+    left_join(gdd[, c("SiteID", "SiteDate", "lat", "lon", "AccumDD", "region")], by = c("SiteID", "SiteDate")) %>% 
+    mutate(RegYear = paste(region, Year, sep = "_")) %>% 
+    mutate(Total = predict(mod, newdata = ., type = "response"),
+           datatype = "predicted")
+  
   # check for boundary problems
   species <- tmp$params$CommonName
-  # plot(missing$AccumDD, missing$Total, main = paste("imputed", species, sep = "_"))
-  # plot(dat$AccumDD, dat$Total, main = paste("observed", species, sep = "_"))
-  
+  jpeg(paste0(species, ".jpg"), width = 1000, height = 1000, quality = 75)
+  par(mfcol=c(3, 2), cex = 1)
+  plot(missing$AccumDD, missing$Total, main = paste("imputed", species, sep = "_"))
+  plot(dat$AccumDD, dat$Total, main = paste("observed", species, sep = "_"))
+  plot(allpred$AccumDD, allpred$Total, main = paste("predicted", species, sep = "_"))
+  plot(missing$DOY, missing$Total, main = paste("imputed", species, sep = "_"))
+  plot(dat$DOY, dat$Total, main = paste("observed", species, sep = "_"))
+  plot(allpred$DOY, allpred$Total, main = paste("predicted", species, sep = "_"))
+  dev.off()
 
   alldat <- dat %>%
     mutate(datatype = "observed") %>%
     bind_rows(missing) %>%
     group_by(SiteYear, SiteID, Year, lat, lon, RegYear) %>%
     summarise(Index = TrapezoidIndex(DOY, Total)) %>%
-    mutate(CommonName = species)
+    mutate(CommonName = species,
+           method = "ukbms")
 
   covs <- dat %>% 
-    dplyr::select(SiteYear, listlength, duration, SurvPerYear, YearTotal) %>% 
+    dplyr::select(SiteYear, Total, listlength, duration, SurvPerYear, YearTotal) %>% 
     group_by(SiteYear) %>% 
     summarise(meanLL = mean(listlength, na.rm = TRUE),
               meanTime = mean(duration, na.rm = TRUE),
               SurvPerYear = SurvPerYear[1],
-              YearTotal = YearTotal[1])
+              YearTotal = YearTotal[1],
+              posWeeks = length(which(Total > 0)))
   
   alldat <- alldat %>% left_join(covs)
   
-  sp_pops[[mf]] <- alldat
+  allpreds <- allpred %>%
+    group_by(SiteYear, SiteID, Year, lat, lon, RegYear) %>%
+    summarise(Index = TrapezoidIndex(DOY, Total)) %>%
+    mutate(CommonName = species,
+           method = "gampred")
+  
+  allpreds <- allpreds %>% left_join(covs)
+  
+  out <- bind_rows(alldat, allpreds)
+  
+  sp_pops[[mf]] <- out
 }
 
 allpops <- bind_rows(sp_pops)
-saveRDS(allpops, "allpops.rds")
+saveRDS(allpops, "allpops.5.rds")
 
-
-test <- allpops %>% 
-  group_by(CommonName) %>% 
-  summarise(meanTot = round(mean(YearTotal)),
-            meanIndex = round(mean(Index)),
-            posSiteYear = length(which(YearTotal > 0)),
-            posSite = length(unique(SiteID[which(YearTotal > 0)])),
-            posYear = length(unique(Year[which(YearTotal > 0)])))
+# NOTES ON PLOTS CHECKING PREDICTIONS/IMPUTED MISSING COUNTS
 
 # Checkered White has way too high values from poor model imputation
 # Others notes from plots
@@ -96,7 +118,7 @@ test <- allpops %>%
 # have imputed 1.5x maximum observed
 
 
-
+# TODO: Uncertainty about GAM predictions
 # PopIndex via GAM predictions (all weekly counts imputed, trapezoid by week, uncertainty quantified)
 
 
