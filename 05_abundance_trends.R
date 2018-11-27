@@ -77,23 +77,100 @@ CollIndGLMER <- function(temp){
 }
 
 
-popmod <- pops %>%  
-  # filter(Year != 1995) %>%
+CollIndGLMER <- function(temp){
+  temp <- temp %>% droplevels()
+  mod <- glmer(round(Index) ~ zyear + meanLL +
+                 # zyear * firstyearsurv +
+                 (1 + zyear + meanLL|SiteID) +
+                 (1 | YearFact) +
+                 (1 | SiteYear), 
+               offset = log(TotalModelTime),
+               family = poisson(link = "log"),
+               data = temp)
+  newdat <- temp %>% 
+    ungroup() %>% 
+    dplyr::select(zyear, YearFact) %>% 
+    distinct() %>% 
+    mutate(SiteID = "000",
+           meanLL = mean(temp$meanLL, na.rm = TRUE))
+  out <- list()
+  out$Collated_Index <- data.frame(zyear = newdat$zyear, 
+                                   YearFact = newdat$YearFact, 
+                                   meanLL = newdat$meanLL,
+                                   Collated_Index = predict(mod, newdat, re.form = ~ 1 | YearFact))
+  out$mod <- tidy(mod)
+  out$sites <- ranef(mod)$SiteID %>% 
+    mutate(SiteID = row.names(.),
+           CommonName = temp$CommonName[1])
+  
+  tempdf <- data.frame(zyear = seq(min(temp$zyear), max(temp$zyear), length.out = 100),
+                       Year = seq(min(temp$Year), max(temp$Year), length.out = 100),
+                       SiteID = "000", YearFact = "0000")
+  exampPreds <- predictInterval(mod, newdata = tempdf, 
+                                type = "linear.prediction",
+                                include.resid.var = FALSE, level = 0.95)
+  tempdf <- cbind(tempdf, exampPreds)
+  out$confint <- tempdf
+  
+  data <- arrange(tempdf, zyear)
+  last <- nrow(data)
+  out$perctrend <- (exp(data$fit[last]) - exp(data$fit[1]))/exp(data$fit[1])
+  return(out)
+}
+
+effort <- pops %>% 
+  ungroup() %>% 
   filter(method == "ukbms") %>% 
+  dplyr::select(SiteID, Year, meanLL, meanTime, SurvPerYear) %>% 
+  distinct()
+
+
+popmod <- pops %>%  
+  # filter(CommonName == "Spicebush Swallowtail") %>%
+  # filter(Year != 1995) %>%
+  filter(method == "gampred") %>% 
   group_by(CommonName, SiteID) %>% 
-  mutate(yrpersite = length(unique(Year[which(YearTotal > 0)])),
+  mutate(firstyearsurv = min(unique(zyear)),
+         yrpersite = length(unique(Year[which(YearTotal > 0)])),
          yrsincestart = Year - min(Year)) %>% 
-  filter(yrpersite >= 3) %>%
+  filter(yrpersite >= 5) %>%
   group_by(CommonName, Year) %>% 
   mutate(siteperyr = length(unique(SiteID[which(YearTotal > 0)]))) %>% 
   # filter(siteperyr >= 3) %>%
-  droplevels() %>% 
+  group_by(CommonName, SiteID, Year) %>% 
+  mutate(TotalModelTime = 30 * meanTime,
+         TotalSurvTime = SurvPerYear * meanTime) %>% 
   group_by(CommonName) %>% 
   mutate(uniqyr = length(unique(Year)),
          uniqsite = length(unique(SiteID))) %>%
   filter(uniqyr >= 5,
          uniqsite >= 3) %>%
   do(results = CollIndGLMER(.)) 
+
+# kitchen sink
+# gives reasonable species trends that don't vary by site
+# this model should be run in framework that allows 
+# phylogeny and traits to explain differences
+temp <- popmod
+temp$rowid <- paste(temp$CommonName, temp$SiteYear, sep = "_")
+mod <- glmer(round(Index) ~ zyear + meanLL +
+               # zyear * firstyearsurv +
+               (1 + zyear + meanLL|CommonName) +
+               (1 | SiteID:CommonName) +
+               (1 | YearFact:CommonName) +
+               # (1 | YearFact) +
+               # (1 | SiteYear) +
+               (1 | rowid), 
+             offset = log(TotalModelTime),
+             family = poisson(link = "log"),
+             data = temp)
+
+
+plt <- ggplot(popmod, aes(x = Year, y = log(Index), group = SiteID)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  facet_wrap(~SiteID, scales = "free_y")
+plt
 
 # 
 # poptrend <- popmod %>% 
