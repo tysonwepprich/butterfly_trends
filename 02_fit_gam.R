@@ -106,7 +106,7 @@ outfiles <- foreach(sp = 1:nrow(allspecies),
                         # }
                         
                         if(sum(dat$Total) < 20|length(unique(dat$SiteID)) < 2|length(unique(dat$Year)) < 2|
-                           length(unique(dat$SiteYear))<5|length(unique(dat$RegYear))<2) {
+                           length(unique(dat$SiteYear))<2|length(unique(dat$RegYear))<2) {
                           mod$error <- "few data"
                         }else{
                           safe_bam <- purrr::safely(bam)
@@ -114,7 +114,7 @@ outfiles <- foreach(sp = 1:nrow(allspecies),
                           modtime_nb <- system.time({ 
                             mod_nb <- safe_bam(Total ~
                                                  # s(zlistlength, bs = "cr") +
-                                                 te(lat, lon, AccumDD, bs = c("tp", "cc"), k = c(5, 30), d = c(2, 1)) +
+                                                 te(lat, lon, AccumDD, bs = c("tp", "cr"), k = c(5, 30), d = c(2, 1)) +
                                                  s(SiteYear, bs = "re") +
                                                  s(Year, bs = "re") +
                                                  s(SiteID, bs = "re") +
