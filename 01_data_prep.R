@@ -1,4 +1,5 @@
 # data prep, source this first
+# 
 
 # packages to load
 library(mclust)
@@ -13,9 +14,7 @@ library(viridis)
 
 theme_set(theme_bw(base_size = 14)) 
 
-
 # for parallel model fitting
-# need different packages for windows computers
 library(foreach) # for parallelized loops
 library(doParallel)
 
@@ -39,7 +38,8 @@ allspecies <- data %>%
 surveys <- distinct(data[, c("SeqID", "SiteID", "SiteDate", "Week")])
 
 
-
+# covariates for surveys
+# listlength is # of species observed, often used as catch-all covariate for effort/weather/season/etc.
 covdata <- data %>%
   group_by(SeqID) %>%
   summarise(listlength = length(which(unique(CommonName) %in% allspecies$CommonName)),
@@ -57,22 +57,11 @@ covdata <- covdata %>%
                            median(duration, na.rm = TRUE),
                            duration))
 
-# site differences
-# range of # of species seen at different sites makes me think that 
-# list-length should be scaled by month and site to account for survey detection variation
-sitelist <- covdata %>% 
-  group_by(SiteID) %>% 
-  summarise(meanll = mean(listlength),
-            sdll = sd(listlength),
-            meandur = mean(duration, na.rm = TRUE),
-            sddur = sd(duration, na.rm = TRUE),
-            nsurvtot = length(unique(SeqID)))
-
-
-
 
 sites <- read.csv("data/OHsites2018update.txt") %>% 
   mutate(SiteID = formatC(Name, width = 3, format = "d", flag = "0"))
+
+# growing degree-day data for each site using Daymet interpolations of daily tmax/tmin
 gdd <- readRDS("data/dailyDD2016.rds")
 
 

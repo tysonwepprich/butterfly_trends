@@ -1,20 +1,11 @@
-# ON hold until I get new data through 2016
-# then rerun GAMs and do population index all at once
-
-#script combining:
-#counts filtering
-#gam predictions for a collated index
-#differs from poptrends.R by accounting for zero counts at sites
-# use sites where sum(total) >= 5, YearSeen at site > 1
-# otherwise Site's population indices very low and bring down collated index
 
 source('01_data_prep.R')
 
 
-# Fit a generalized additive model (GAM) for each species
+# Fit a generalized additive model (GAM) for each species' counts
 # This model will be used to impute missing counts a la UKBMS
-# OR be used to compute site x year population indices
-
+# OR be used to compute site x year population indices based on model preditions alone
+# This model is used to plot seasonal phenological patterns in different regions/years
 
 # run a subset for testing
 # allspecies <- allspecies[c(81:84), ]
