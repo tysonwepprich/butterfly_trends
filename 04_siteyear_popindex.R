@@ -1,6 +1,6 @@
 source('01_data_prep.R')
 
-modfiles <- list.files("gams5", full.names = TRUE)
+modfiles <- list.files("gams", full.names = TRUE)
 modfiles <- modfiles[grep(pattern = "final", x = modfiles, fixed = TRUE)]
 sp_pops <- list()
 

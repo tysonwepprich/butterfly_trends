@@ -22,7 +22,7 @@ test <- allpops %>%
             posSY10 = length(unique(SiteID[which(posYearbySite >= 10)])),
             obsSY5 = length(unique(SiteID[which(obsYearbySite >= 5)])),
             obsSY10 = length(unique(SiteID[which(obsYearbySite >= 10)]))) %>% 
-  filter(posSY5 >= 5 | posSY10 >= 1)
+  filter(posSY5 >= 2 & posYear >= 10)
 
 # write.csv(test, "species_observations.csv", row.names = FALSE)
 
@@ -46,48 +46,50 @@ CollInd <- function(temp){
                     zIndex = scale(coef(mod)[1:length(levels(temp$YearFact))])[,1])
 }
 
+# CollIndGLMER <- function(temp){
+#   temp <- temp %>% droplevels()
+#   mod <- glmer(round(Index) ~ zyear +
+#                  (1 + zyear|SiteID) +
+#                  (1 | YearFact), family = poisson(link = "log"),
+#                data = temp)
+#   newdat <- temp %>% ungroup() %>% dplyr::select(zyear, YearFact) %>% distinct() %>% mutate(SiteID = "000")
+#   out <- list()
+#   out$Collated_Index <- data.frame(zyear = newdat$zyear, YearFact = newdat$YearFact, 
+#                                    Collated_Index = predict(mod, newdat, re.form = ~ 1 | YearFact))
+#   out$mod <- tidy(mod)
+#   out$sites <- ranef(mod)$SiteID %>% 
+#     mutate(SiteID = row.names(.),
+#            CommonName = temp$CommonName[1])
+#   
+#   tempdf <- data.frame(zyear = seq(min(temp$zyear), max(temp$zyear), length.out = 100),
+#                        Year = seq(min(temp$Year), max(temp$Year), length.out = 100),
+#                        SiteID = "000", YearFact = "0000")
+#   exampPreds <- predictInterval(mod, newdata = tempdf, 
+#                                 type = "linear.prediction",
+#                                 include.resid.var = FALSE, level = 0.95)
+#   tempdf <- cbind(tempdf, exampPreds)
+#   out$confint <- tempdf
+#   
+#   data <- arrange(tempdf, zyear)
+#   last <- nrow(data)
+#   out$perctrend <- (exp(data$fit[last]) - exp(data$fit[1]))/exp(data$fit[1])
+#   return(out)
+# }
+
+# TODO: what to do about model fitting with error/convergence issue?
+# Hoary Edge Skipper has perfectly correlated random effects, could be removed...?
 CollIndGLMER <- function(temp){
   temp <- temp %>% droplevels()
-  mod <- glmer(round(Index) ~ zyear +
-                 (1 + zyear|SiteID) +
-                 (1 | YearFact), family = poisson(link = "log"),
-               data = temp)
-  newdat <- temp %>% ungroup() %>% dplyr::select(zyear, YearFact) %>% distinct() %>% mutate(SiteID = "000")
-  out <- list()
-  out$Collated_Index <- data.frame(zyear = newdat$zyear, YearFact = newdat$YearFact, 
-                                   Collated_Index = predict(mod, newdat, re.form = ~ 1 | YearFact))
-  out$mod <- tidy(mod)
-  out$sites <- ranef(mod)$SiteID %>% 
-    mutate(SiteID = row.names(.),
-           CommonName = temp$CommonName[1])
-  
-  tempdf <- data.frame(zyear = seq(min(temp$zyear), max(temp$zyear), length.out = 100),
-                       Year = seq(min(temp$Year), max(temp$Year), length.out = 100),
-                       SiteID = "000", YearFact = "0000")
-  exampPreds <- predictInterval(mod, newdata = tempdf, 
-                                type = "linear.prediction",
-                                include.resid.var = FALSE, level = 0.95)
-  tempdf <- cbind(tempdf, exampPreds)
-  out$confint <- tempdf
-  
-  data <- arrange(tempdf, zyear)
-  last <- nrow(data)
-  out$perctrend <- (exp(data$fit[last]) - exp(data$fit[1]))/exp(data$fit[1])
-  return(out)
-}
-
-
-CollIndGLMER <- function(temp){
-  temp <- temp %>% droplevels()
+  print(temp$CommonName[1])
   mod <- glmer(round(Index) ~ zyear + meanLL +
                  # zyear * firstyearsurv +
-                 (1 + zyear + meanLL|SiteID) +
-                 (1 | YearFact) +
+                 (1 |SiteID) +
+                 # (1 | YearFact) +
                  (1 | SiteYear), 
                offset = log(TotalModelTime),
                family = poisson(link = "log"),
                data = temp)
-  newdat <- temp %>% 
+  newdat <- temp %>%
     ungroup() %>% 
     dplyr::select(zyear, YearFact) %>% 
     distinct() %>% 
@@ -105,7 +107,7 @@ CollIndGLMER <- function(temp){
   
   tempdf <- data.frame(zyear = seq(min(temp$zyear), max(temp$zyear), length.out = 100),
                        Year = seq(min(temp$Year), max(temp$Year), length.out = 100),
-                       SiteID = "000", YearFact = "0000")
+                       SiteID = "000", YearFact = "000", meanLL = newdat$meanLL[1], SiteYear = "000")
   exampPreds <- predictInterval(mod, newdata = tempdf, 
                                 type = "linear.prediction",
                                 include.resid.var = FALSE, level = 0.95)
@@ -114,7 +116,7 @@ CollIndGLMER <- function(temp){
   
   data <- arrange(tempdf, zyear)
   last <- nrow(data)
-  out$perctrend <- (exp(data$fit[last]) - exp(data$fit[1]))/exp(data$fit[1])
+  out$perctrend <- ((exp(data$fit[last]) / exp(data$fit[1])) ^ (1/(data$Year[last]-data$Year[1])) - 1) * 100
   return(out)
 }
 
@@ -126,25 +128,25 @@ effort <- pops %>%
 
 
 popmod <- pops %>%  
-  filter(CommonName == "Spicebush Swallowtail") %>%
+  filter(CommonName == "Hoary Edge Skipper") %>%
   # filter(Year != 1995) %>%
   filter(method == "gampred") %>% 
   group_by(CommonName, SiteID) %>% 
   mutate(firstyearsurv = min(unique(zyear)),
          yrpersite = length(unique(Year[which(YearTotal > 0)])),
          yrsincestart = Year - min(Year)) %>% 
-  filter(yrpersite >= 5) %>%
+  filter(yrpersite >= 5) %>% # this choice makes a difference, including marginal sites lowers the trend
   group_by(CommonName, Year) %>% 
   mutate(siteperyr = length(unique(SiteID[which(YearTotal > 0)]))) %>% 
-  # filter(siteperyr >= 3) %>%
+  # filter(siteperyr >= 3) %>% # increasing this would throw out localized populations
   group_by(CommonName, SiteID, Year) %>% 
   mutate(TotalModelTime = 30 * meanTime,
          TotalSurvTime = SurvPerYear * meanTime) %>% 
   group_by(CommonName) %>% 
   mutate(uniqyr = length(unique(Year)),
          uniqsite = length(unique(SiteID))) %>%
-  filter(uniqyr >= 5,
-         uniqsite >= 3) %>%
+  # filter(uniqyr >= 5,
+         # uniqsite >= 3) %>%
   do(results = CollIndGLMER(.)) 
 
 # # kitchen sink
@@ -166,33 +168,14 @@ popmod <- pops %>%
 #              data = temp)
 
 
+# if not run through CollInd functions, can plot popindex values
 plt <- ggplot(popmod, aes(x = Year, y = log(Index), group = SiteID)) +
   geom_point() +
   geom_smooth(method = "lm", se = FALSE) +
   facet_wrap(~SiteID, scales = "free_y")
 plt
 
-# 
-# poptrend <- popmod %>% 
-#   group_by(CommonName) %>% 
-#   do(fit = lm(Index ~ Year, data = .)) %>% 
-#   broom::tidy(fit) %>% 
-#   filter(term == "Year") %>% 
-#   arrange(estimate)
-# 
-perctrend <- function(data){
-  data <- arrange(data, Year)
-  pred <-  predict(lm(Index ~ Year, data = data))
-  last <- length(pred)
-  out <- (exp(pred[last]) - exp(pred[1]))/exp(pred[1])
-}
-# 
-# poptrendperc <- popmod %>% 
-#   group_by(CommonName) %>% 
-#   do(trend = perctrend(.)) %>% 
-#   unnest()
 
-# 
 cilist <- list()
 modlist <- list()
 siteslist <- list()
@@ -215,20 +198,40 @@ for (i in 1:nrow(popmod)){
   cf$CommonName <- popmod[i,]$CommonName
   confintlist[[i]] <- cf
   
-  # pc <- popmod[i, ]$results[[1]]$perctrend
-  # pc$CommonName <- popmod[i,]$CommonName
-  # perclist[[i]] <- pc
+  pc <- data.frame(perctrend = popmod[i, ]$results[[1]]$perctrend)
+  pc$CommonName <- popmod[i,]$CommonName
+  perclist[[i]] <- pc
 }
-cidf <- bind_rows(cilist)
+cidf <- bind_rows(cilist) %>% 
+  mutate(Year = as.numeric(as.character(YearFact)))
 moddf <- bind_rows(modlist)
 sitesdf <- bind_rows(siteslist)
 confdf <- bind_rows(confintlist)
-# percdf <- bind_rows(perclist)
+percdf <- bind_rows(perclist)
 
 trends <- moddf %>% 
   filter(term == "zyear") %>% 
   arrange(estimate) %>% 
   data.frame()
+
+
+
+a <- ggplot(cidf, aes(x = Year, y = exp(Collated_Index)*1800)) +
+  geom_point(size = .5) +
+  geom_line(data = confdf, aes(x = Year, y = exp(fit) * 30*60), inherit.aes = FALSE, size = .5, linetype = "dashed") +
+  geom_ribbon(data = confdf, aes(x = Year, ymin = exp(lwr)*30*60, ymax = exp(upr)*30*60), alpha = .1, inherit.aes = FALSE) +
+  expand_limits(y = 0) +
+  scale_y_continuous(expand = c(0, 0)) +
+  ggtitle("Trend of total number of butterflies counted at average site") +
+  labs(y = "Predicted number observed") +
+  theme_bw(base_size = 8) +
+  theme(
+    #panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    plot.title = element_text(hjust = 0.5)) +
+  facet_wrap(~CommonName, scales = "free_y")
+
+a
 
 
 species <- data %>% 

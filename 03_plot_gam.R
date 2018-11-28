@@ -1,6 +1,6 @@
 source('01_data_prep.R')
 
-modfiles <- list.files()
+modfiles <- list.files(path = "gams", full.names = TRUE)
 modfiles <- modfiles[grep(pattern = "final", x = modfiles, fixed = TRUE)]
 sp_params <- list()
 

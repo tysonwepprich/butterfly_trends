@@ -10,7 +10,7 @@ source('01_data_prep.R')
 # run a subset for testing
 # allspecies <- allspecies[c(81:84), ]
 
-ncores <- 4
+ncores <- 8
 if(ncores > (parallel::detectCores() / 2)){
   ncores <- parallel::detectCores() / 2
 }
@@ -88,13 +88,6 @@ outfiles <- foreach(sp = 1:nrow(allspecies),
                         
                         dat <- dat[which(!is.na(dat$AccumDD)), ]
                         
-                        # #silly filters for univoltine species with outliers
-                        # if(species == "Baltimore"){
-                        #   dat <- dat[-which(dat$DOY > 220 & dat$Total >= 1), ]
-                        # }
-                        # if(species == "Leonard's Skipper"){
-                        #   dat <- dat[-which(dat$DOY < 220 & dat$Total >= 1), ]
-                        # }
                         
                         if(sum(dat$Total) < 20|length(unique(dat$SiteID)) < 2|length(unique(dat$Year)) < 2|
                            length(unique(dat$SiteYear))<2|length(unique(dat$RegYear))<2) {
