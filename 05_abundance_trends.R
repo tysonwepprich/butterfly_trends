@@ -126,7 +126,7 @@ effort <- pops %>%
 
 
 popmod <- pops %>%  
-  # filter(CommonName == "Spicebush Swallowtail") %>%
+  filter(CommonName == "Spicebush Swallowtail") %>%
   # filter(Year != 1995) %>%
   filter(method == "gampred") %>% 
   group_by(CommonName, SiteID) %>% 
@@ -147,23 +147,23 @@ popmod <- pops %>%
          uniqsite >= 3) %>%
   do(results = CollIndGLMER(.)) 
 
-# kitchen sink
-# gives reasonable species trends that don't vary by site
-# this model should be run in framework that allows 
-# phylogeny and traits to explain differences
-temp <- popmod
-temp$rowid <- paste(temp$CommonName, temp$SiteYear, sep = "_")
-mod <- glmer(round(Index) ~ zyear + meanLL +
-               # zyear * firstyearsurv +
-               (1 + zyear + meanLL|CommonName) +
-               (1 | SiteID:CommonName) +
-               (1 | YearFact:CommonName) +
-               # (1 | YearFact) +
-               # (1 | SiteYear) +
-               (1 | rowid), 
-             offset = log(TotalModelTime),
-             family = poisson(link = "log"),
-             data = temp)
+# # kitchen sink
+# # gives reasonable species trends that don't vary by site
+# # this model should be run in framework that allows 
+# # phylogeny and traits to explain differences
+# temp <- popmod
+# temp$rowid <- paste(temp$CommonName, temp$SiteYear, sep = "_")
+# mod <- glmer(round(Index) ~ zyear + meanLL +
+#                # zyear * firstyearsurv +
+#                (1 + zyear + meanLL|CommonName) +
+#                (1 | SiteID:CommonName) +
+#                (1 | YearFact:CommonName) +
+#                # (1 | YearFact) +
+#                # (1 | SiteYear) +
+#                (1 | rowid), 
+#              offset = log(TotalModelTime),
+#              family = poisson(link = "log"),
+#              data = temp)
 
 
 plt <- ggplot(popmod, aes(x = Year, y = log(Index), group = SiteID)) +
@@ -291,21 +291,35 @@ sitevars <- pops %>%
             EndYear = max(zyear),
             Length = max(Year) - min(Year))
 
+# abundance model
+sitesdf <- ranef(mod)$SiteID %>% 
+  mutate(SiteID = row.names(.),
+         meanLL = NULL)
+
+
 sitedat <- sitesdf %>% 
   left_join(sitecov) %>% 
   left_join(sitecov2) %>% 
-  filter(CommonName %in% residents$CommonName) %>% 
-  left_join(sitevars)
+  # filter(CommonName %in% residents$CommonName) %>% 
+  left_join(sitevars) %>% 
+  droplevels() %>% 
+  ungroup()
 names(sitedat)[1] <- "Trend_intc"
 
 # other variables like survey effort not important!
-sitemod <- lmer(zyear ~ StartYear + Length + meanLL + meanSurv + (1 | SiteID),
+# SiteID random intercept doesn't work with lmer, ==  # levels to nrow
+sitemod <- lmer(zyear ~ StartYear + Length + meanLL + meanDur + meanSurv + (1 | SiteID),
                 data = sitedat)
 summary(sitemod)
 
 sitemod <- lmer(zyear ~ StartYear + Length + (1 | SiteID),
                 data = sitedat)
 summary(sitemod)
+
+# library(randomForest)
+# datrf <- sitedat %>% filter(complete.cases(.))
+# sitemod <- randomForest(x = datrf[, -c(2:3)], y = datrf[, 2])
+
 
 sitere <- data.frame(Mean_effect = ranef(sitemod)$SiteID[, 1], SiteID = row.names(ranef(sitemod)$SiteID)) %>% 
   left_join(distinct(sitedat[, c("SiteID", "lat", "lon")]))
@@ -349,19 +363,43 @@ popall <- pops %>%
   filter(method == "gampred") %>% 
   filter(Year >= 1996,
          is.na(meanTime) == FALSE) %>%
-  # filter(CommonName != "Cabbage White") %>%  # with or without Cabbage White
-  mutate(TotalTime = meanTime * SurvPerYear) %>% 
-  group_by(SiteID, YearFact, Year, zyear) %>%
-  summarise(Index = sum(YearTotal),
-            sumTime = mean(TotalTime, na.rm = TRUE)) #%>% 
+  mutate(zlistlength = meanLL - mean(meanLL, na.rm = TRUE)) %>% 
+  # # this uses raw counts with no imputing missing values
+  # mutate(TotalTime = meanTime * SurvPerYear) %>% 
+  # group_by(SiteID, YearFact, Year, zyear, SiteYear) %>%
+  # summarise(Index = sum(YearTotal),
+  #           sumTime = mean(TotalTime, na.rm = TRUE),
+  #           meanLL = mean(meanLL, na.rm = TRUE))
+  # this uses ukbms/gampred indices and imputes missing surveys
+  mutate(TotalTime = meanTime * 30) %>% 
+    group_by(SiteID, YearFact, Year, zyear, SiteYear) %>%
+    summarise(Index = sum(Index),
+              sumTime = mean(TotalTime, na.rm = TRUE),
+              meanLL = mean(zlistlength, na.rm = TRUE))
 
 temp <- popall %>% droplevels()
 
+# 1st model attempt
 mod <- glmer(round(Index) ~ zyear + 
                 (1 + zyear|SiteID) +
-               (1 | YearFact), offset = log(sumTime),  family = poisson(link = "log"),
+               (1 | YearFact), 
+             offset = log(sumTime),  family = poisson(link = "log"),
              data = temp)
-newdat <- temp %>% ungroup() %>% dplyr::select(zyear, YearFact) %>% distinct() %>% mutate(SiteID = "000")
+# 2nd attempt with effort covariates
+mod <- glmer(round(Index) ~ zyear + meanLL +
+               (1 + zyear + meanLL|SiteID) +
+               (1 | YearFact) +
+               (1 | SiteYear),
+             offset = log(sumTime),  family = poisson(link = "log"),
+             data = temp)
+
+
+newdat <- temp %>% 
+  ungroup() %>% 
+  dplyr::select(zyear, YearFact) %>% 
+  distinct() %>% 
+  mutate(SiteID = "000",
+         meanLL = mean(temp$meanLL, na.rm = TRUE))
 Collated_Index <- data.frame(zyear = newdat$zyear, YearFact = newdat$YearFact, 
                                  Collated_Index = predict(mod, newdat, re.form = ~ 1 | YearFact))
 Collated_Index$PredTotal <- exp(Collated_Index$Collated_Index) * 30 * 60
@@ -369,7 +407,7 @@ Collated_Index$Year <- as.numeric(as.character(Collated_Index$YearFact))
 
 tempdf <- data.frame(zyear = seq(min(temp$zyear), max(temp$zyear), length.out = 100),
                      Year = seq(min(temp$Year), max(temp$Year), length.out = 100),
-                     SiteID = "000", YearFact = "0000")
+                     SiteID = "000", YearFact = "0000", meanLL = 0, SiteYear = "0000")
 intervals <- predictInterval(mod, newdata = tempdf, 
                               type = "linear.prediction",
                               include.resid.var = FALSE, level = 0.95)
@@ -384,7 +422,8 @@ a <- ggplot(Collated_Index, aes(x = Year, y = PredTotal)) +
   ggtitle("Trend of total number of butterflies counted at average site") +
   labs(y = "Predicted number observed") +
   theme_bw(base_size = 24) +
-  theme(panel.grid.major = element_blank(),
+  theme(
+    #panel.grid.major = element_blank(),
         panel.grid.minor = element_blank(),
         plot.title = element_text(hjust = 0.5))
   
