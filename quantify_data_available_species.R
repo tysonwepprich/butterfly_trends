@@ -1,12 +1,3 @@
-# ON hold until I get new data through 2016
-# then rerun GAMs and do population index all at once
-
-#script combining:
-#counts filtering
-#gam predictions for a collated index
-#differs from poptrends.R by accounting for zero counts at sites
-# use sites where sum(total) >= 5, YearSeen at site > 1
-# otherwise Site's population indices very low and bring down collated index
 
 source('01_data_prep.R')
 allcounts <- list()
@@ -68,6 +59,13 @@ test <- alldat %>%
   dplyr::select(CommonName, CombinedLatin, SiteID, Year, YearTotal, SurvPerYear) %>% 
   distinct() %>% 
   group_by(CommonName, SiteID) %>% 
+  arrange(Year) %>% 
+  ### if you only want consecutive years
+  mutate(consec = c(0, abs(diff(Year)) == 1),
+         maxconsec = max(rle(consec)$lengths, na.rm = TRUE) + 1) %>% 
+  filter(maxconsec >= 10) %>% 
+  droplevels() %>% 
+  ###
   mutate(posYearbySite = length(unique(Year[which(YearTotal > 0)])),
          obsYearbySite = length(unique(Year[which(YearTotal >= 0)]))) %>% 
   group_by(CommonName, CombinedLatin) %>% 
@@ -75,9 +73,9 @@ test <- alldat %>%
             presence_SiteYear = length(which(YearTotal > 0)),
             presence_Site = length(unique(SiteID[which(YearTotal > 0)])),
             presence_Year = length(unique(Year[which(YearTotal > 0)])),
-            presence_Site_5years = length(unique(SiteID[which(posYearbySite >= 5)])),
+            # presence_Site_5years = length(unique(SiteID[which(posYearbySite >= 5)])),
             presence_Site_10years = length(unique(SiteID[which(posYearbySite >= 10)])),
-            zeros_too_Site_5years = length(unique(SiteID[which(obsYearbySite >= 5)])),
+            # zeros_too_Site_5years = length(unique(SiteID[which(obsYearbySite >= 5)])),
             zeros_too_Site_10years = length(unique(SiteID[which(obsYearbySite >= 10)])))
 
-write.csv(test, "OH_species_observations.csv", row.names = FALSE)
+write.csv(test, "OH_species_observations_10consecyears.csv", row.names = FALSE)
