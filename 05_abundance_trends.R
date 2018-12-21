@@ -1,28 +1,23 @@
 # Abundance trends based on SiteYear population indices
 source('01_data_prep.R')
-round_df <- function(x, digits=2) {
-  # round all numeric variables
-  # x: data frame 
-  # digits: number of digits to round
-  numeric_columns <- sapply(x, class) == 'numeric'
-  x[numeric_columns] <-  round(x[numeric_columns], digits)
-  x
-}
+source('utils.R')
+
 library(lme4)
 library(broom)
 library(merTools)
 library(rtrim)
-# library(brms)
+# devtools::install_github("jknape/poptrend")
+library(poptrend)
 
 allpops <- readRDS("allpops.5.rds")
 
-# 87 species when filtering by >10 sites, >10 years
+# 87 species after filtering species by data available
 test <- allpops %>% 
   filter(method == "ukbms") %>%
   group_by(CommonName, SiteID) %>% 
   mutate(posYearbySite = length(unique(Year[which(YearTotal > 0)])),
          obsYearbySite = length(unique(Year[which(YearTotal >= 0)]))) %>% 
-  filter(posYearbySite >= 3, obsYearbySite >= 5) %>%
+  filter(posYearbySite >= 3, obsYearbySite >= 5) %>% # this choice makes a difference, including marginal sites lowers mean count
   group_by(CommonName) %>% 
   summarise(medTot = round(median(YearTotal)),
             medIndex = round(median(Index)),
@@ -43,6 +38,7 @@ pops <- allpops %>%
 
 
 pops$YearFact <- as.factor(as.character(pops$Year))
+pops$SiteYear <- as.factor(pops$SiteYear)
 pops$Year <- as.numeric(as.character(pops$Year))
 pops$SiteID <- as.factor(as.character(pops$SiteID))
 pops$zyear <- pops$Year - 2006
@@ -50,56 +46,42 @@ pops$zmeanLL <- pops$meanLL - mean(pops$meanLL)
 pops$region <- as.factor(stringr::str_split_fixed(pops$RegYear, pattern = coll("_"), 2 )[, 1])
 
 
-CollInd <- function(temp){
-  temp <- temp %>% droplevels()
-  mod <- glm(round(Index) ~ YearFact + SiteID - 1, 
-             data = temp, family = poisson(link = "log"))
-  out <- data.frame(Year = levels(temp$YearFact), 
-                    Index = coef(mod)[1:length(levels(temp$YearFact))],
-                    zIndex = scale(coef(mod)[1:length(levels(temp$YearFact))])[,1])
-}
+popmod <- pops %>%
+  filter(CommonName == "American Copper") %>%
+  filter(method == "gampred") %>% 
+  group_by(CommonName, SiteID) %>% 
+  mutate(firstyearsurv = min(unique(zyear)),
+         pospersite = length(unique(Year[which(YearTotal > 0)])),
+         obspersite = length(unique(Year)), # includes zero counts
+         yrsincestart = Year - min(Year),
+         sitezll = zmeanLL - mean(zmeanLL)) %>% 
+  group_by(CommonName, Year) %>% 
+  mutate(siteperyr = length(unique(SiteID[which(YearTotal > 0)]))) %>% 
+  group_by(CommonName, SiteID, Year) %>% 
+  mutate(TotalModelTime = 30 * meanTime,
+         TotalSurvTime = SurvPerYear * meanTime,
+         ModTotal = Index / meanTime) %>% 
+  group_by(CommonName) %>% 
+  mutate(uniqyr = length(unique(Year)),
+         uniqsite = length(unique(SiteID))) %>%
+  do(results = CollIndGLMER(.)) 
 
-# CollIndGLMER <- function(temp){
-#   temp <- temp %>% droplevels()
-#   mod <- glmer(round(Index) ~ zyear +
-#                  (1 + zyear|SiteID) +
-#                  (1 | YearFact), family = poisson(link = "log"),
-#                data = temp)
-#   newdat <- temp %>% ungroup() %>% dplyr::select(zyear, YearFact) %>% distinct() %>% mutate(SiteID = "000")
-#   out <- list()
-#   out$Collated_Index <- data.frame(zyear = newdat$zyear, YearFact = newdat$YearFact, 
-#                                    Collated_Index = predict(mod, newdat, re.form = ~ 1 | YearFact))
-#   out$mod <- tidy(mod)
-#   out$sites <- ranef(mod)$SiteID %>% 
-#     mutate(SiteID = row.names(.),
-#            CommonName = temp$CommonName[1])
-#   
-#   tempdf <- data.frame(zyear = seq(min(temp$zyear), max(temp$zyear), length.out = 100),
-#                        Year = seq(min(temp$Year), max(temp$Year), length.out = 100),
-#                        SiteID = "000", YearFact = "0000")
-#   exampPreds <- predictInterval(mod, newdata = tempdf, 
-#                                 type = "linear.prediction",
-#                                 include.resid.var = FALSE, level = 0.95)
-#   tempdf <- cbind(tempdf, exampPreds)
-#   out$confint <- tempdf
-#   
-#   data <- arrange(tempdf, zyear)
-#   last <- nrow(data)
-#   out$perctrend <- (exp(data$fit[last]) - exp(data$fit[1]))/exp(data$fit[1])
-#   return(out)
-# }
+# years since establishment effect on species list-length?
+plt <- ggplot(popmod, aes(x = yrsincestart, y = sitezll)) +
+  geom_point() +
+  geom_smooth()
+plt
 
-# TODO: what to do about model fitting with error/convergence issue?
-# change some lmer options
 CollIndGLMER <- function(temp){
   temp <- temp %>% 
-    droplevels()
+    droplevels() %>% 
+    mutate(ztime = sqrt(meanTime) - mean(sqrt(meanTime)))
   print(temp$CommonName[1])
-  mod <- glmer(round(Index) ~ zyear + zmeanLL +
+  mod2 <- glmer(round(Index) ~ zyear + zmeanLL + #log(meanTime) +
                  (1 + zyear | SiteID) + # could have meanLL here to vary by site too
                  (1 | YearFact) +
                  (1 | SiteYear), 
-               offset = log(TotalModelTime), 
+               offset = log(meanTime),
                family = poisson(link = "log"),
                data = temp,
                control=glmerControl(optCtrl=list(maxfun=2e6)))
@@ -107,7 +89,7 @@ CollIndGLMER <- function(temp){
   # for species with low sample, simpler model helps convergence
   if(length(mod@optinfo$conv$lme4) > 0){
     mod <- glmer(round(Index) ~ zyear + zmeanLL +
-                   (1 |SiteID) + # could have meanLL here to vary by site too
+                   (1 | SiteID) + # could have meanLL here to vary by site too
                    (1 | YearFact) +
                    (1 | SiteYear), 
                  offset = log(TotalModelTime), 
@@ -122,7 +104,8 @@ CollIndGLMER <- function(temp){
     dplyr::select(zyear, YearFact) %>% 
     distinct() %>% 
     mutate(SiteID = "000",
-           zmeanLL = 0)
+           zmeanLL = 0,
+           ztime = 0)
   out <- list()
   out$model <- mod
   out$data <- temp
@@ -138,7 +121,7 @@ CollIndGLMER <- function(temp){
   
   tempdf <- data.frame(zyear = seq(min(temp$zyear), max(temp$zyear), length.out = 100),
                        Year = seq(min(temp$Year), max(temp$Year), length.out = 100),
-                       SiteID = "000", YearFact = "000", zmeanLL = newdat$zmeanLL[1], SiteYear = "000")
+                       SiteID = "000", YearFact = "000", zmeanLL = newdat$zmeanLL[1], ztime = newdat$ztime[1], SiteYear = "000")
   exampPreds <- predictInterval(mod, newdata = tempdf, 
                                 type = "linear.prediction",
                                 include.resid.var = FALSE, level = 0.95)
@@ -154,134 +137,70 @@ CollIndGLMER <- function(temp){
 # # using TRIM 
 
 temp <- data %>% 
-      droplevels() %>%
-      mutate(
-        # timeoffset = log(TotalModelTime),
-             count = round(Index) / meanTime)
-    print(temp$CommonName[1])
+  droplevels() %>%
+  mutate(
+    # timeoffset = log(TotalModelTime),
+    count = round(Index)) %>% 
+  group_by(SiteID) %>% 
+  mutate(site_w = mean(count))
+print(temp$CommonName[1])
 
-    z1 <- rtrim::trim(count ~ SiteID + Year, data=temp, model=3, serialcor=TRUE, overdisp=TRUE)
-    summary(z1)
-    plot(overall(z1))
-    plot(index(z1))
-    
-    z4 <- trim(count ~ SiteID + Year, data=temp, model=2, changepoints="all",
-               stepwise=TRUE, serialcor=FALSE, overdisp=TRUE)
-    summary(z4)
-# # Takes too long! Similar estimates to lme4, but better convergence when RE correlated in lme4
-# CollIndBRMS <- function(temp){
-#   temp <- temp %>% 
-#     droplevels() %>% 
-#     mutate(timeoffset = log(TotalModelTime),
-#            PopIndex = round(Index),
-#            zlat = scale(lat),
-#            zlon = scale(lon))
-#   print(temp$CommonName[1])
-#   
-#   fit_pois_siteslopes <- brm(PopIndex ~ zyear + meanLL +
-#                                (1 + zyear + meanLL | SiteID) +
-#                                (1 | YearFact) +
-#                                (1 | SiteYear) +
-#                                offset(timeoffset),
-#                              family = poisson(),
-#                              data = temp,
-#                              control = list(adapt_delta = .95))
-#   
-#   # this crashes R every time
-#   # fit_pois_gam <- brm(PopIndex ~ 
-#   #                              t2(zyear, zlat, zlon, k = c(5, 3, 3), d = c(1, 2))  +
-#   #                              (1 | SiteID) +
-#   #                              (1 | YearFact) +
-#   #                              (1 | SiteYear) +
-#   #                              offset(timeoffset),
-#   #                            family = poisson(),
-#   #                            data = temp)
-#   
-#   summary(fit_pois_siteslopes)
-#   plot(marginal_effects(fit_pois_siteslopes))
-#   
-# }
+z1 <- rtrim::trim(count ~ SiteID + Year + TotalModelTime, data=temp, model=3, serialcor=TRUE, overdisp=TRUE, weights = "site_w")
+summary(z1)
+overall(z1)
+plot(overall(z1))
+plot(index(z1))
 
-# # No clear benefit with GAM, but only tested a couple species
-    
-    # 
-    # # trying out poptrends from Knape 2016
-    # # devtools::install_github("jknape/poptrend")
-    # library(poptrend)
-    # 
-    # data <- pops %>% 
-    #   filter(method == "gampred") %>% 
-    #   filter(CommonName == "American Copper")
-    # trFit = ptrend(Index ~ trend(Year, tempRE = TRUE, type = "smooth") + SiteID, 
-    #                data = data)
-    # 
-    # trLin = ptrend(Index ~ trend(Year, tempRE = TRUE, type = "smooth") +
-    #                  # s(SiteID, bs = "re") +
-    #                  SiteID +
-    #                  s(meanLL) +
-    #                  s(meanTime), data = data)
-    # 
-    # plot(trFit)
-    # plot(trLin)
-    # change(trLin, 1996, 2016)
-    
-    
-# CollIndGAM <- function(temp){
-#   temp <- temp %>% 
-#     droplevels() %>% 
-#     group_by(SiteID) %>% 
-#     mutate(medsitepop = log(median(Index))) %>% 
-#     ungroup() %>% 
-#     mutate(SiteYear = as.factor(SiteYear),
-#            timeoffset = log(TotalModelTime),
-#            PopIndex = round(Index))
-#   print(temp$CommonName[1])
-#   mod <- gam(PopIndex ~
-#                # s(zyear, k = 10) +
-#                te(lat, lon, zyear, bs = c("tp", "cr"), k = c(4, 10), d = c(2, 1)) +
-#                # s(SiteYear, bs = "re") +
-#                s(YearFact, bs = "re") +
-#                s(SiteID, bs = "re"),
-#                # s(zyear, SiteID, bs = "fs", k = 5, m = 1),
-#              # family = nb(theta = NULL, link = "log"),
-#              family = poisson(link = "log"),                
-#              offset = timeoffset, 
-#              data = temp, 
-#              method = "REML",
-#              control = list(maxit = 500))
-#   
-#   
-# }
-
-effort <- pops %>% 
-  ungroup() %>% 
-  filter(method == "ukbms") %>% 
-  dplyr::select(SiteID, Year, meanLL, meanTime, SurvPerYear) %>% 
-  distinct()
+z4 <- trim(count ~ SiteID + Year, data=temp, model=2, changepoints="all",
+           stepwise=TRUE, serialcor=FALSE, overdisp=TRUE)
+summary(z4)
 
 
-popmod <- pops %>%
-  # filter(CommonName == "Common Roadside Skipper") %>%
-  # filter(Year != 1995) %>%
-  filter(method == "gampred") %>% 
-  group_by(CommonName, SiteID) %>% 
-  mutate(firstyearsurv = min(unique(zyear)),
-         pospersite = length(unique(Year[which(YearTotal > 0)])),
-         obspersite = length(unique(Year)), # includes zero counts
-         yrsincestart = Year - min(Year)) %>% 
-  filter(pospersite >= 3, obspersite >= 5) %>% # this choice makes a difference, including marginal sites lowers the trend
-  group_by(CommonName, Year) %>% 
-  mutate(siteperyr = length(unique(SiteID[which(YearTotal > 0)]))) %>% 
-  # filter(siteperyr >= 3) %>% # increasing this would throw out localized populations
-  group_by(CommonName, SiteID, Year) %>% 
-  mutate(TotalModelTime = 30 * meanTime,
-         TotalSurvTime = SurvPerYear * meanTime) %>% 
-  group_by(CommonName) %>% 
-  mutate(uniqyr = length(unique(Year)),
-         uniqsite = length(unique(SiteID))) %>%
-  # filter(uniqyr >= 5,
-  # uniqsite >= 3) %>%
-  do(results = CollIndGLMER(.)) 
+
+
+# trying out poptrends from Knape 2016
+
+
+data <- popmod %>%
+  filter(method == "gampred") %>%
+  filter(CommonName == "American Copper") %>% 
+  mutate(ztime = sqrt(meanTime) - mean(sqrt(meanTime)),
+         Index = round(Index))
+
+trFit = ptrend(Index ~ trend(Year, tempRE = TRUE, type = "smooth") + SiteID,
+               data = data, family = poisson(link = "log"))
+trFit = ptrend(Index ~ trend(Year, tempRE = TRUE, type = "smooth") + SiteID,
+               data = data)
+
+trLin = ptrend(Index ~ trend(Year, tempRE = TRUE, type = "smooth", fx = FALSE, k = 6) +
+                 s(SiteID, bs = "re") +
+                 # SiteID +
+                 zmeanLL +
+                 ztime, data = data, family = nb(theta = NULL, link = "log"))
+
+plot(trFit)
+plot(trLin)
+change(trLin, 1996, 2016)
+
+gmod_nb <- gam(round(Index) ~ s(zyear) + zmeanLL + ztime +
+                 # s(zyear, SiteID, bs = "fs", k = 5, m = 1) + # could have meanLL here to vary by site too
+                 s(SiteID, bs = "re") +
+                 s(YearFact, bs = "re"),
+               # s(SiteYear, bs = "re"),
+               # offset = log(meanTime), 
+               # family = poisson(link = "log"),
+               family = nb(theta = NULL, link = "log"),
+               method = "REML",
+               data = data)
+
+# effort <- pops %>% 
+#   ungroup() %>% 
+#   filter(method == "ukbms") %>% 
+#   dplyr::select(SiteID, Year, meanLL, meanTime, SurvPerYear) %>% 
+#   distinct()
+
+
+
 
 # # kitchen sink
 # # gives reasonable species trends that don't vary by site
@@ -303,12 +222,14 @@ popmod <- pops %>%
 
 
 # if not run through CollInd functions, can plot popindex values
-temp <- popmod %>% filter(CommonName == "Monarch")
+temp <- popmod %>% filter(CommonName == "Monarch", pospersite >= 10)
 plt <- ggplot(temp, aes(x = Year, y = YearTotal, group = SiteID)) +
-  geom_point(color = "blue") +
-  geom_smooth(method = "glm", se = FALSE, method.args = list(family = "poisson"), color = "blue") +
-  geom_point(data = temp, aes(x = Year, y = Index, group = SiteID), color = "red") +
-  geom_smooth(data = temp, aes(x = Year, y = Index, group = SiteID), method = "glm", se = FALSE, method.args = list(family = "poisson"), color = "red") +
+  # geom_point(color = "blue") +
+  # geom_smooth(method = "glm", se = FALSE, method.args = list(family = "poisson"), color = "blue") +
+  # geom_point(data = temp, aes(x = Year, y = Index, group = SiteID), color = "red") +
+  # geom_smooth(data = temp, aes(x = Year, y = Index, group = SiteID), method = "glm", se = FALSE, method.args = list(family = "poisson"), color = "red") +
+  geom_point(data = temp, aes(x = Year, y = ModTotal, group = SiteID), color = "green") +
+  geom_smooth(data = temp, aes(x = Year, y = ModTotal, group = SiteID), method = "glm", se = FALSE, method.args = list(family = "poisson"), color = "green") +
   facet_wrap(~SiteID, scales = "free_y")
 plt
 
@@ -326,7 +247,7 @@ ci <- data.frame(zyear = newdat$zyear,
                  SiteYear = newdat$SiteYear,
                  meanLL = newdat$meanLL,
                  Collated_Index = predict(mod, newdat, re.form = NULL))
-                 # Collated_Index = predict(mod, newdat, re.form = ~ (1 | YearFact) + (1 + zyear |SiteID)))
+# Collated_Index = predict(mod, newdat, re.form = ~ (1 | YearFact) + (1 + zyear |SiteID)))
 plt <- ggplot(ci, aes(x = YearFact, y = exp(Collated_Index)*1800, group = SiteID)) +
   geom_point() +
   geom_smooth(method = "glm", se = FALSE, method.args = list(family = "poisson")) +
@@ -412,7 +333,7 @@ a <- ggplot(cidf, aes(x = Year, y = log(exp(Collated_Index)*1800), group = Commo
     #panel.grid.major = element_blank(),
     panel.grid.minor = element_blank(),
     plot.title = element_text(hjust = 0.5))
-  # facet_wrap(~CommonName, scales = "free_y")
+# facet_wrap(~CommonName, scales = "free_y")
 a
 
 
@@ -568,7 +489,12 @@ popall <- pops %>%
             sumTime = mean(TotalTime, na.rm = TRUE),
             meanLL = mean(zmeanLL, na.rm = TRUE)) %>% 
   ungroup() %>% 
-  mutate(ztime = log(sumTime) - mean(log(sumTime), na.rm = TRUE))
+  mutate(ztime = log(sumTime) - mean(log(sumTime), na.rm = TRUE)) %>% 
+  group_by(SiteID) %>% 
+  mutate(obspersite = length(unique(Year))) %>% 
+  filter(obspersite >= 10)
+
+
 
 temp <- popall %>% droplevels()
 
@@ -577,14 +503,16 @@ mod <- glmer(round(Index) ~ zyear +
                (1 + zyear|SiteID) +
                (1 | YearFact) +
                (1 | SiteYear), 
-             offset = log(sumTime),  family = poisson(link = "log"),
+             offset = log(sumTime),
+             family = poisson(link = "log"),
              data = temp)
 # 2nd attempt with effort covariates
 mod <- glmer(round(Index) ~ zyear + meanLL +
                (1 + zyear + meanLL|SiteID) +
                (1 | YearFact) +
                (1 | SiteYear),
-             offset = log(sumTime),  family = poisson(link = "log"),
+             # offset = log(sumTime),  
+             family = poisson(link = "log"),
              data = temp)
 # 3rd attempt with site initiation covariates
 mod <- glmer(round(Index) ~ zyear + meanLL + zyrs +
@@ -601,26 +529,70 @@ mod <- glmer(round(Index) ~ zyear + meanLL + zyrs +
 # time offset does a little worse than ztime as parameter (with coef around .7)
 
 m1a <- glmer(Index ~ zyear + meanLL +
-              (1 + zyear + meanLL|SiteID) +
-              (1 | YearFact) +
-              (1 | SiteYear), 
-            family = poisson(link = "log"),
-            data = temp)
+               (1 + zyear + meanLL|SiteID) +
+               (1 | YearFact) +
+               (1 | SiteYear), 
+             family = poisson(link = "log"),
+             data = temp)
 
 m2a <- glmer(Index ~ zyear + meanLL +
                (1 + zyear + meanLL|SiteID) +
-              (1 | YearFact) +
-              (1 | SiteYear),
-            offset = log(sumTime),
-            family = poisson(link = "log"),
-            data = temp)
+               (1 | YearFact) +
+               (1 | SiteYear),
+             offset = log(sumTime),
+             family = poisson(link = "log"),
+             data = temp)
 
-m3a <- glmer(Index ~ zyear + ztime +meanLL +
-              (1 + zyear + meanLL|SiteID) +
-              (1 | YearFact) +
-              (1 | SiteYear),
-            family = poisson(link = "log"),
-            data = temp)
+# could also had ztime into Site RE
+m3a <- glmer(Index ~ zyear + ztime + meanLL +
+               (1 + zyear + meanLL + ztime|SiteID) +
+               (1 | YearFact) +
+               (1 | SiteYear),
+             family = poisson(link = "log"),
+             data = temp)
+
+AIC(m1a, m2a, m3a)
+
+# OR TRIM
+temp <- temp %>% 
+  mutate(
+    # timeoffset = log(TotalModelTime),
+    count = round(Index) / sumTime * 60)
+# count = round(Index))
+z1 <- rtrim::trim(count ~ SiteID + Year, data=temp, model=3, serialcor=TRUE, overdisp=TRUE)
+summary(z1)
+plot(overall(z1))
+plot(index(z1))
+
+# OR POPTREND
+tr1 = ptrend(Index ~ trend(Year, tempRE = TRUE, type = "smooth") + SiteID,
+             data = temp)
+
+tr2 = ptrend(Index ~ trend(Year, tempRE = TRUE, type = "smooth") +
+               s(SiteID, bs = "re") +
+               # SiteID +
+               s(meanLL) +
+               s(ztime), data = temp)
+
+gm <- gam(Index ~ s(Year) + 
+            s(YearFact, bs = "re") +
+            SiteID +
+            s(meanLL) +
+            s(ztime), data = temp, family = poisson)
+
+plot(tr1)
+plot(tr2)
+change(tr1, 1996, 2016)
+change(tr2, 1996, 2016)
+
+
+
+eff <- ggplot(temp, aes(x = Year, y = ztime, group = SiteID)) + 
+  geom_point() +
+  geom_smooth() + 
+  facet_wrap(~SiteID, scales = "free_y")
+eff
+
 
 
 newdat <- temp %>% 
@@ -657,6 +629,10 @@ a <- ggplot(Collated_Index, aes(x = Year, y = PredTotal)) +
     plot.title = element_text(hjust = 0.5))
 
 a
+
+
+merBoot <- bootMer(mod, predict, nsim = 100, re.form = NA)
+
 
 
 poptrendperc <- popmod %>% 
